@@ -1,0 +1,13 @@
+import type { Env } from "./db";
+import { db } from "./db";
+const COOKIE = "cv_session"; const SESSION_DAYS = 7;
+const bytes = (n: number) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return a; };
+const hex = (a: Uint8Array) => [...a].map((x) => x.toString(16).padStart(2, "0")).join("");
+async function digest(value: string) { return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))); }
+export async function hashPassword(password: string, salt = hex(bytes(16))) { const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]); const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: new TextEncoder().encode(salt), iterations: 210000, hash: "SHA-256" }, key, 256); return `pbkdf2$210000$${salt}$${hex(new Uint8Array(bits))}`; }
+export async function verifyPassword(password: string, stored: string) { const [, iterations, salt, expected] = stored.split("$"); if (!iterations || !salt || !expected) return false; const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]); const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: new TextEncoder().encode(salt), iterations: Number(iterations), hash: "SHA-256" }, key, 256); return hex(new Uint8Array(bits)) === expected; }
+function cookie(value: string, maxAge: number) { return `${COOKIE}=${value}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${maxAge ? "; Secure" : ""}`; }
+export async function signIn(env: Env, adminId: number) { const token = hex(bytes(32)); const expires = new Date(Date.now() + SESSION_DAYS * 86400000); await db(env)`INSERT INTO admin_sessions (admin_id, token_hash, expires_at) VALUES (${adminId}, ${await digest(token)}, ${expires.toISOString()})`; return { header: cookie(token, SESSION_DAYS * 86400), expires }; }
+export function clearCookie() { return cookie("", 0); }
+export async function currentAdmin(request: Request, env: Env) { const token = request.headers.get("Cookie")?.match(new RegExp(`${COOKIE}=([^;]+)`))?.[1]; if (!token) return null; const row = (await db(env)`SELECT a.id, a.email FROM admin_sessions s JOIN admins a ON a.id=s.admin_id WHERE s.token_hash=${await digest(token)} AND s.expires_at > NOW() LIMIT 1`)[0] as { id: number; email: string } | undefined; return row ?? null; }
+export async function revoke(request: Request, env: Env) { const token = request.headers.get("Cookie")?.match(new RegExp(`${COOKIE}=([^;]+)`))?.[1]; if (token) await db(env)`DELETE FROM admin_sessions WHERE token_hash=${await digest(token)}`; }

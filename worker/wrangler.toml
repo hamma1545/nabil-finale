@@ -1,0 +1,10 @@
+name = "certificate-verification-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-15"
+
+[vars]
+# Set this to the deployed Pages origin, e.g. https://YOUR-PAGES-PROJECT.pages.dev
+ALLOWED_ORIGIN = "https://YOUR_CLOUDFLARE_PAGES_URL"
+
+# Configure with: pnpm wrangler secret put DATABASE_URL --config worker/wrangler.toml
+# Configure with: pnpm wrangler secret put SESSION_SECRET --config worker/wrangler.toml
